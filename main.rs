@@ -5,19 +5,40 @@
 use std::env;
 use std::fs;
 use std::time::Instant;
+use itertools::Itertools;
+use rand::Rng;
 
 fn main() {
+    // get_reduced_sudoku();
     // test_first_sudoku();
     test_every_sudoku();
 }
 
-fn test_first_sudoku() {
+fn get_reduced_sudoku() {
     let file_path = "data/sudoku-rated.csv";
     let binding = fs::read_to_string(file_path).expect("pls work");
     let mut lines = binding.lines();
     lines.next();  // first line is "puzzle"
     let split = lines.next().expect("pls").split(',').collect::<Vec<_>>();
     let string = split[1];
+    let mut sudoku = Sudoku::from_string(string);
+    let solutions = sudoku.solve(false);
+    match solutions {
+        SolutionCount::Zero | SolutionCount::Multiple => println!("{:?}", solutions),
+        SolutionCount::One(sud) => {
+            let reduced = sud.reduce_clues(26);
+            println!("{:?}", reduced);
+        },
+    }
+}
+
+fn test_first_sudoku() {
+    let file_path = "data/sudoku17.csv";
+    let binding = fs::read_to_string(file_path).expect("pls work");
+    let mut lines = binding.lines();
+    lines.next();  // first line is "puzzle"
+    let split = lines.next().expect("pls").split(',').collect::<Vec<_>>();
+    let string = split[0];
     let mut sudoku = Sudoku::from_string(string);
     sudoku.print_with_possibilities();
     println!("{}", sudoku);
@@ -29,27 +50,28 @@ fn test_first_sudoku() {
 }
 
 fn test_every_sudoku() {
-    let file_path = "data/sudoku-rated.csv";
+    let file_path = "data/sudoku17.csv";
     let binding = fs::read_to_string(file_path).expect("pls work");
     let mut lines = binding.lines();
     lines.next();  // first line is "puzzle"
     let mut max_difficulty = f32::MIN;
-    let puzzle_count = 20000000;
+    let puzzle_count = 20_000_000;
     let mut solved_count = 0;
     let mut total_millis = 0.0;
     let mut max_millis = 0.0;
     let debug = false;
-    println!("Solving {} puzzles", puzzle_count);
+    // println!("Solving {} puzzles", puzzle_count);
     for i in 0..puzzle_count {
         let next_line = lines.next();
         if next_line == None {
             break;
         }
         let split = next_line.expect("not None").split(',').collect::<Vec<_>>();
-        let string = split[1];
+        let string = split[0];
         let mut sudoku = Sudoku::from_string(string);
-        let difficulty: f32 = split[4].parse().unwrap();
-        if difficulty < 6.0 {
+        // let difficulty: f32 = split[4].parse().unwrap();
+        let difficulty = 10.0;
+        if difficulty < 9.0 {
             continue;
         }
         solved_count += 1;
@@ -65,13 +87,14 @@ fn test_every_sudoku() {
             println!("Max Difficulty: {} ({}ms)", max_difficulty, millis);
         }
         total_millis += millis;
-        if millis > 20.0 {
-            println!("Difficulty: {}\tTook {}ms", difficulty, millis);
+        if millis > 10.0 {
+            println!("Difficulty: {}\tIndex: {}\tTook {}ms", difficulty, i, millis);
         }
         if millis > max_millis {
             max_millis = millis;
         }
     }
+    println!("Solved {} puzzles", solved_count);
     println!("Average time: {}ms", total_millis as f32 / solved_count as f32);
     println!("Max time: {}ms", max_millis as f32);
 }
@@ -102,6 +125,7 @@ impl std::fmt::Display for Tile {
 struct Sudoku {
     board: [[Tile; 9]; 9],
     possible: [[[bool; 9]; 9]; 9],
+    clues: u32
 }
 
 impl Sudoku {
@@ -115,26 +139,35 @@ impl Sudoku {
         }
         Tile::Num(digit.into())
     }
+    fn new_blank() -> Self {
+        let board = [[Tile::Void; 9]; 9];
+        let possible = [[[true; 9]; 9]; 9];
+        Self { board, possible, clues: 0 }
+    }
     fn from_string(input: &str) -> Self {
         let board = [[Tile::Void; 9]; 9];
         let possible = [[[true; 9]; 9]; 9];
         if input.len() != 81 {
             panic!("not the right length");
         }
-        let mut res = Self { board, possible };
+        let mut res = Self { board, possible, clues: 0 };
         for i in 0..81 {
             let x_pos = i % 9;
             let y_pos = i / 9;
             let digit = input.as_bytes()[i];
             let tile = Self::get_tile_from_digit(digit);
             res.set_tile_at(x_pos, y_pos, tile);
+            if tile != Tile::Void {
+                res.clues += 1;
+            }
         }
         return res;
     }
     fn from_sudoku(s: &Self) -> Self {
         let board = s.board.clone();
         let possible = s.possible.clone();
-        Self {board, possible}
+        let clues = s.clues;
+        Self {board, possible, clues}
     }
     fn set_tile_at(&mut self, x_pos: usize, y_pos: usize, tile: Tile) {
         self.board[x_pos][y_pos] = tile;
@@ -163,15 +196,18 @@ impl Sudoku {
         }
     }
 
-    fn get_naked_single(&self, x_pos: usize, y_pos: usize) -> Tile {
+    fn get_naked_single(&self, x_pos: usize, y_pos: usize) ->  (Tile, bool) {
+        if self.board[x_pos][y_pos] != Tile::Void {
+            return (Tile::Void, false);
+        }
         let mut res = Tile::Void;
         for i in 1..=9 {
             if self.possible[x_pos][y_pos][i - 1] {
                 if res == Tile::Void { res = Tile::Num(i) }
-                else { return Tile::Void }
+                else { return (Tile::Void, false) }
             }
         }
-        res
+        (res, res == Tile::Void)
     }
     fn get_naked_pair(&self, x_pos: usize, y_pos: usize) -> (Tile, Tile) {
         let mut first = Tile::Void;
@@ -210,7 +246,7 @@ impl Sudoku {
         (best_x, best_y)
     }
 
-    fn fill_naked_singles(&mut self, debug: bool) -> (bool, bool) {
+    fn fill_naked_singles(&mut self, debug: bool) -> (bool, bool, bool) {
         let mut changed = false;
         let mut complete = true;
         for x in 0..9 {
@@ -219,17 +255,20 @@ impl Sudoku {
                     complete = false;
                 }
                 let naked = self.get_naked_single(x, y);
-                if naked != Tile::Void {
-                    self.set_tile_at(x, y, naked);
+                if naked.1 {
+                    return (changed, complete, true);
+                }
+                if naked.0 != Tile::Void {
+                    self.set_tile_at(x, y, naked.0);
                     if debug {
                         println!("naked single");
-                        self.print_with_possibilities();
+                        // self.print_with_possibilities();
                     }
                     changed = true;
                 }
             }
         }
-        (changed, complete)
+        (changed, complete, false)
     }
 
     fn fill_last_in_column(&mut self, debug: bool) -> bool {
@@ -251,7 +290,7 @@ impl Sudoku {
                     self.set_tile_at(x, possible_at.expect("pls"), Tile::Num(val));
                     if debug {
                         println!("last column");
-                        self.print_with_possibilities();
+                        // self.print_with_possibilities();
                     }
                     changed = true;
                 }
@@ -279,7 +318,7 @@ impl Sudoku {
                     self.set_tile_at(possible_at.expect("pls"), y, Tile::Num(val));
                     if debug {
                         println!("last row");
-                        self.print_with_possibilities();
+                        // self.print_with_possibilities();
                     }
                     changed = true;
                 }
@@ -314,7 +353,7 @@ impl Sudoku {
                         self.set_tile_at(x, y, Tile::Num(val));
                         if debug {
                             println!("last box");
-                            self.print_with_possibilities();
+                            // self.print_with_possibilities();
                         }
                         changed = true;
                     }
@@ -418,7 +457,10 @@ impl Sudoku {
 
     fn solve(&mut self, debug: bool) -> SolutionCount {
         for _ in 0..100 {
-            let (mut changed, complete) = self.fill_naked_singles(debug);
+            let (mut changed, complete, no_solutions) = self.fill_naked_singles(debug);
+            if no_solutions {
+                return SolutionCount::Zero;
+            }
             if complete {
                 return SolutionCount::One(*self);
             }
@@ -429,8 +471,8 @@ impl Sudoku {
             changed |= self.fill_last_in_box(debug);
 
 
-            // naked pairs (this slows down the performance)
-            // self.apply_naked_pairs(debug);
+            // naked pairs (this can slow down the performance)
+            self.apply_naked_pairs(debug);
 
             if !changed {
                 break;
@@ -438,6 +480,9 @@ impl Sudoku {
         }
         let (best_x, best_y) = self.get_best_guess_spot(debug);
         let mut solution = None;
+        if debug {
+            println!("backtracking");
+        }
         for i in 0..9 {
             if self.possible[best_x][best_y][i] {
                 let mut new_sudoku = Self::from_sudoku(self);
@@ -458,6 +503,23 @@ impl Sudoku {
             None => { return SolutionCount::Zero }
             Some(solution) => { return SolutionCount::One(solution)}
         }
+    }
+
+    // assumes the Sudoku is solved
+    fn reduce_clues(&self, target: usize) -> Option<Self> {
+        let mut rng = rand::thread_rng();
+        let proportion = target as f64 / 81.0;
+        for _ in 0..100 {
+            let new_sudoku = Self::from_sudoku(self);
+            for x in 0..9 {
+                for y in 0..9 {
+                    if rng.gen::<f64>() <= proportion {
+                        // do things
+                    }
+                }
+            }
+        }
+        todo!();
     }
 
     fn print_with_possibilities(&self) {
