@@ -66,7 +66,7 @@ impl Sudoku {
                 if naked.0 != Tile::Void {
                     self.set_tile_at(x, y, naked.0);
                     if debug {
-                        println!("naked single");
+                        // println!("naked single");
                         // self.print_with_possibilities();
                     }
                     changed = true;
@@ -98,7 +98,7 @@ impl Sudoku {
                 if possible_count == 1 {
                     self.set_tile_at(x, possible_at.expect("pls"), Tile::Num(val));
                     if debug {
-                        println!("last column");
+                        // println!("last column");
                         // self.print_with_possibilities();
                     }
                     changed = true;
@@ -130,7 +130,7 @@ impl Sudoku {
                 if possible_count == 1 {
                     self.set_tile_at(possible_at.expect("pls"), y, Tile::Num(val));
                     if debug {
-                        println!("last row");
+                        // println!("last row");
                         // self.print_with_possibilities();
                     }
                     changed = true;
@@ -168,7 +168,7 @@ impl Sudoku {
                         let y = box_y + possible_at_dy.expect("pls");
                         self.set_tile_at(x, y, Tile::Num(val));
                         if debug {
-                            println!("last box");
+                            // println!("last box");
                             // self.print_with_possibilities();
                         }
                         changed = true;
@@ -400,12 +400,11 @@ impl Sudoku {
                                     }
                                     if old_y0 != self.possible[x][y0] || old_y1 != self.possible[x][y1] || old_y2 != self.possible[x][y2] {
                                         changed = true;
-                                        /*
-                                        println!("trips at col: {} with nums: {}, {}, {}", x, num_first, num_second, num_third);
-                                        println!("y: {}, {}, {}", y0, y1, y2);
-                                        self.print_with_possibilities();
-                                        println!();
-                                        */
+                                        if debug {
+                                            println!("trips in column: {}", x);
+                                            self.print_with_possibilities();
+                                            println!();
+                                        }
                                     }
                                 }
                             }
@@ -475,12 +474,11 @@ impl Sudoku {
                                     }
                                     if old_x0 != self.possible[x0][y] || old_x1 != self.possible[x1][y] || old_x2 != self.possible[x2][y] {
                                         changed = true;
-                                        /*
-                                        println!("trips at row: {} with nums: {}, {}, {}", y, num_first, num_second, num_third);
-                                        println!("x: {}, {}, {}", x0, x1, x2);
-                                        self.print_with_possibilities();
-                                        println!();
-                                        */
+                                        if debug {
+                                            println!("trips in row: {}", y);
+                                            self.print_with_possibilities();
+                                            println!();
+                                        }
                                     }
                                 }
                             }
@@ -553,17 +551,16 @@ impl Sudoku {
                                             continue;
                                         }
                                         self.remove_possible_at(x0, y0, val);
-                                        self.remove_possible_at(x1, y2, val);
+                                        self.remove_possible_at(x1, y1, val);
                                         self.remove_possible_at(x2, y2, val);
                                     }
                                     if old_x0 != self.possible[x0][y0] || old_x1 != self.possible[x1][y1] || old_x2 != self.possible[x2][y2] {
                                         changed = true;
-                                        /*
-                                        println!("trips at row: {} with nums: {}, {}, {}", y, num_first, num_second, num_third);
-                                        println!("x: {}, {}, {}", x0, x1, x2);
-                                        self.print_with_possibilities();
-                                        println!();
-                                        */
+                                        if debug {
+                                            println!("trips in box: {} with nums: ({}, {}, {}) i: ({}, {}, {})", box_num, num_first, num_second, num_third, i0, i1, i2);
+                                            self.print_with_possibilities();
+                                            println!();
+                                        }
                                     }
                                 }
                             }
@@ -765,13 +762,21 @@ impl Sudoku {
         let (best_x, best_y) = self.get_best_guess_spot(debug);
         let mut solution = None;
         if debug {
-            println!("backtracking");
+            println!("Making choice point");
+            println!("{}", self);
+            self.print_sudoku_wiki_link();
+            println!("Guessing at {}, {}", best_x, best_y);
         }
         for i in 1..=9 {
             if self.is_possible_at(best_x, best_y, i) {
                 let mut new_sudoku = Self::from_sudoku(self);
                 new_sudoku.set_tile_at(best_x, best_y, Tile::Num(i));
-                match new_sudoku.solve(debug) {
+                let solution_count = new_sudoku.solve(debug);
+                if debug {
+                    println!("Guess: {}", i);
+                    println!("{:?}", solution_count);
+                }
+                match solution_count {
                     SolutionCount::Zero => {},
                     SolutionCount::One(s) => {
                         match solution {
@@ -782,6 +787,9 @@ impl Sudoku {
                     SolutionCount::Multiple => { return SolutionCount::Multiple }
                 }
             }
+        }
+        if debug {
+            println!("{}", self);
         }
         match solution {
             None => { return SolutionCount::Zero }

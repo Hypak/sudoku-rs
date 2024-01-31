@@ -1,23 +1,56 @@
 pub mod solve;
 pub mod print;
 
-use rand::Rng;
+use std::cmp::Ordering;
+use rand::{Rng, seq::SliceRandom, thread_rng};
 
 // 9 lowest bits are true
 const ALL_POSSIBLE: u16 =  0b0000000111111111;
 const NONE_POSSIBLE: u16 = 0b0000000000000000;
 
-#[derive(Copy, Clone, PartialEq, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Tile {
     Void,
     Num(usize),
+}
+
+impl Ord for Tile {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let s = match self {
+            Tile::Void => 0,
+            Tile::Num(x) => x + 1,
+        };
+        let o = match other {
+            Tile::Void => 0,
+            Tile::Num(x) => x + 1,
+        };
+        return s.cmp(&o);
+    }
+}
+
+impl PartialOrd for Tile {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum SolutionCount {
     Zero,
     One(Sudoku),
-    Multiple
+    Multiple,
+}
+
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub enum Difficulty {
+    Trivial,
+    Easy,
+    LevelOne(usize),
+    LevelTwo(usize),
+    LevelThree(usize),
+    LiterallyZeroSolutions,
+    LiterallyMultipleSolutions,
+    TooDeep,
 }
 
 impl std::fmt::Display for Tile {
@@ -29,7 +62,7 @@ impl std::fmt::Display for Tile {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub struct Sudoku {
     pub board: [[Tile; 9]; 9],
     pub possible: [[u16; 9]; 9],
@@ -37,7 +70,7 @@ pub struct Sudoku {
     pub column_possible: [[u16; 9]; 9],
     pub row_possible: [[u16; 9]; 9],
     pub box_possible: [[u16; 9]; 9],
-    pub clues: u32,
+    pub clues: usize,
 }
 
 impl Sudoku {
@@ -147,20 +180,151 @@ impl Sudoku {
         self.box_possible[box_index][num - 1] &= mask;
     }
 
-    // assumes the Sudoku is solved
-    pub fn reduce_clues(&self, target: usize) -> Option<Self> {
-        let mut rng = rand::thread_rng();
-        let proportion = target as f64 / 81.0;
-        for _ in 0..100 {
-            let new_sudoku = Self::from_sudoku(self);
-            for x in 0..9 {
-                for y in 0..9 {
-                    if rng.gen::<f64>() <= proportion {
-                        // do things
-                    }
+    pub fn reduce_to_n_random(&mut self, n: usize) -> Sudoku {
+        if n > 81 {
+            panic!("n is too large");
+        }
+        for x in 0..9 {
+            for y in 0..9 {
+                if self.board[x][y] == Tile::Void {
+                    panic!("incomplete Sudoku");
                 }
             }
         }
-        todo!();
+        let mut res = Sudoku::new_blank();
+        // Shuffle the indicies, then draw the first n
+        let mut indicies = (0..81).collect::<Vec<_>>();
+        indicies.shuffle(&mut thread_rng());
+        let indicies: Vec<_> = indicies.into_iter().take(n).collect();
+        for index in indicies {
+            let x = index % 9;
+            let y = index / 9;
+            res.set_tile_at(x, y, self.board[x][y]);
+        }
+        res.clues = n;
+        return res;
+    }
+
+    pub fn get_all_reduced_by_one_clue(&self) -> Vec<Sudoku> {
+        let mut res = vec![];
+        for x in 0..9 {
+            for y in 0..9 {
+                if self.board[x][y] == Tile::Void {
+                    continue;
+                }
+                // We cannot copy then remove a clue, as the possibilities would not be aligned
+                let mut new_sudoku = Sudoku::new_blank();
+                for x1 in 0..9 {
+                    for y1 in 0..9 {
+                        if x == x1 && y == y1 {
+                            continue;
+                        }
+                        new_sudoku.set_tile_at(x1, y1, self.board[x1][y1]);
+                    }
+                }
+                let mut to_solve = Sudoku::from_sudoku(&new_sudoku);
+                let solution_count = to_solve.solve(false);
+                new_sudoku.clues = self.clues - 1;
+                if let SolutionCount::One(_) = solution_count {
+                    res.push(new_sudoku);
+                }
+            }
+        }
+        return res;
+    }
+
+    pub fn get_difficulty(&self, depth: usize) -> Difficulty {
+        if depth > 0 {
+            let cheat = self.get_difficulty(depth - 1);
+            if cheat != Difficulty::TooDeep {
+                return cheat;
+            }
+        }
+        let mut new = Sudoku::from_sudoku(self);
+        let trivial = new.solve_no_guessing(true, 100, false);
+        if let SolutionCount::One(_) = trivial {
+            return Difficulty::Trivial;
+        }
+        let easy = new.solve_no_guessing(false, 100, false);
+        if let SolutionCount::One(_) = trivial {
+            return Difficulty::Easy;
+        }
+        let solution_count = new.solve(false);
+        match solution_count {
+            SolutionCount::Zero => return Difficulty::LiterallyZeroSolutions,
+            SolutionCount::Multiple => return Difficulty::LiterallyMultipleSolutions,
+            SolutionCount::One(solution) => {
+                if depth < 1 {
+                    return Difficulty::TooDeep;
+                }
+                let mut level = 4;
+                let mut level_1_count = 0;
+                let mut level_2_count = 0;
+                let mut level_3_count = 0;
+                // Compute level
+                for x in 0..9 {
+                    for y in 0..9 {
+                        if self.board[x][y] != Tile::Void {
+                            continue;
+                        }
+                        let mut new = Sudoku::from_sudoku(self);
+                        new.set_tile_at(x, y, solution.board[x][y]);
+                        let new_difficulty = new.get_difficulty(depth - 1);
+                        match new_difficulty {
+                            Difficulty::LiterallyZeroSolutions | Difficulty::LiterallyMultipleSolutions => return new_difficulty,
+                            Difficulty::Trivial | Difficulty::Easy => {
+                                level = 1;
+                                level_1_count += 1;
+                            },
+                            Difficulty::LevelOne(x) => {
+                                if level > 2 {
+                                    level = 2;
+                                    level_2_count += x;
+                                }
+                            },
+                            Difficulty::LevelTwo(x) => {
+                                if level > 3 {
+                                    level = 3;
+                                    level_3_count += x;
+                                }
+                            },
+                            Difficulty::LevelThree(_) => { // lmao this is unlikely
+                                println!("CONGRATS! You have won Sudoku!!!");
+                            },
+                            Difficulty::TooDeep => {},
+                        }
+                    }
+                }
+                match level {
+                    1 => { return Difficulty::LevelOne(level_1_count) },
+                    2 => { return Difficulty::LevelTwo(level_1_count) },
+                    3 => { return Difficulty::LevelThree(level_3_count) },
+                    _ => { return Difficulty::TooDeep },
+                }
+            },
+        }
+
+    }
+}
+
+impl PartialOrd for Sudoku {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Sudoku {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        for x in 0..9 {
+            for y in 0..9 {
+                if self.board[x][y] > other.board[x][y] {
+                    return Ordering::Greater;
+                }
+                if self.board[x][y] < other.board[x][y] {
+                    return Ordering::Less;
+                }
+            }
+        }
+        return Ordering::Equal;
     }
 }

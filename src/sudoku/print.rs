@@ -1,6 +1,20 @@
 use crate::sudoku::*;
 
 impl Sudoku {
+    pub fn print_sudoku_wiki_link(&mut self) {
+        let base = "https://www.sudokuwiki.org/sudoku.htm?bd=";
+        print!("{}", base);
+        for y in 0..9 {
+            for x in 0..9 {
+                match self.board[x][y] {
+                    Tile::Void => { print!("0") },
+                    Tile::Num(x) => { print!("{}", x) },
+                }
+            }
+        }
+        println!();
+    }
+
     pub fn print_with_possibilities(&mut self) {
         println!("-------------------------------------");
         for j in 0..9 {
