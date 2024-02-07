@@ -797,3 +797,97 @@ impl Sudoku {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sudoku::*;
+    use crate::sudoku::solve::*;
+    use crate::reader::*;
+
+    #[test]
+    fn test_get_naked_single() {
+        let mut all_sudoku = get_all_sudoku_from_path("data/test/get_naked_single.csv");
+        let output = all_sudoku[0].get_naked_single(0, 0);
+        assert_eq!(output, (Tile::Num(1), false));
+        let output = all_sudoku[1].get_naked_single(0, 0);
+        assert_eq!(output, (Tile::Void, false));
+
+    }
+
+    #[test]
+    fn test_get_naked_pair() {
+        let mut all_sudoku = get_all_sudoku_from_path("data/test/get_naked_pair.csv");
+        let output = all_sudoku[0].get_naked_pair(0, 0);
+        assert_eq!(output, (Tile::Num(1), Tile::Num(8)));
+        let output = all_sudoku[1].get_naked_pair(0, 0);
+        assert_eq!(output, (Tile::Void, Tile::Void));
+    }
+
+    #[test]
+    fn test_get_best_guess_spot() {
+        let mut all_sudoku = get_all_sudoku_from_path("data/test/get_naked_pair.csv");
+        let output = all_sudoku[0].get_best_guess_spot(false);
+        assert_eq!(output, (0, 0));
+    }
+
+    #[test]
+    fn test_fill_naked_singles() {
+        let mut all_sudoku = get_all_sudoku_from_path("data/test/fill_naked_singles.csv");
+        let output = all_sudoku[0].fill_naked_singles(false);
+        assert_eq!(all_sudoku[0].board, all_sudoku[1].board);
+    }
+
+    #[test]
+    fn test_fill_last_in_column() {
+        let mut all_sudoku = get_all_sudoku_from_path("data/test/fill_last_in_column.csv");
+        let output = all_sudoku[0].fill_last_in_column(false);
+        assert_eq!(all_sudoku[0].board, all_sudoku[1].board);
+    }
+
+    #[test]
+    fn test_fill_last_in_row() {
+        let mut all_sudoku = get_all_sudoku_from_path("data/test/fill_last_in_row.csv");
+        let output = all_sudoku[0].fill_last_in_row(false);
+        assert_eq!(all_sudoku[0].board, all_sudoku[1].board);
+    }
+
+    #[test]
+    fn test_fill_last_in_box() {
+        let mut all_sudoku = get_all_sudoku_from_path("data/test/fill_last_in_box.csv");
+        let output = all_sudoku[0].fill_last_in_box(false);
+        assert_eq!(all_sudoku[0].board, all_sudoku[1].board);
+    }
+
+    #[test]
+    fn test_hidden_pairs() {
+        let mut all_sudoku = get_all_sudoku_from_path("data/test/hidden_pairs.csv");
+        let output = all_sudoku[0].apply_hidden_pairs_rows(false);
+        let correct = (0b1 << (6 - 1)) + (0b1 << (7 - 1));
+        assert_eq!(all_sudoku[0].possible[7][0], correct);
+        assert_eq!(all_sudoku[0].possible[8][0], correct);
+    }
+
+    #[test]
+    fn test_hidden_trips() {
+        let mut all_sudoku = get_all_sudoku_from_path("data/test/hidden_trips.csv");
+        let output = all_sudoku[0].apply_hidden_trips_rows(false);
+        let correct_256 = (0b1 << (2 - 1)) + (0b1 << (5 - 1)) + (0b1 << (6 - 1));
+        let correct_26 = (0b1 << (2 - 1)) + (0b1 << (6 - 1));
+        let correct_25 = (0b1 << (2 - 1)) + (0b1 << (5 - 1));
+        assert_eq!(all_sudoku[0].possible[3][0], correct_256);
+        assert_eq!(all_sudoku[0].possible[6][0], correct_26);
+        assert_eq!(all_sudoku[0].possible[8][0], correct_25);
+    }
+
+        #[test]
+    fn test_naked_pairs() {
+        let mut all_sudoku = get_all_sudoku_from_path("data/test/naked_pairs.csv");
+        let output = all_sudoku[0].apply_naked_pairs(false);
+        let correct_25 = (0b1 << (2 - 1)) + (0b1 << (5 - 1));
+        let correct_257 = (0b1 << (2 - 1)) + (0b1 << (5 - 1)) + (0b1 << (7 - 1));
+        assert_eq!(all_sudoku[0].possible[3][0], correct_25);
+        assert_eq!(all_sudoku[0].possible[4][0], correct_257);
+        assert_eq!(all_sudoku[0].possible[5][0], correct_257);
+    }
+}
